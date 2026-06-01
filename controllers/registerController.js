@@ -15,8 +15,7 @@ setInterval(() => {
   }
 }, 15 * 60 * 1000)
 
-// ── Transporter Email ─────────────────────────────────────────
-const nodemailer = require('nodemailer')
+// ── Transporter Email ───────────────────
 
 const transporter = nodemailer.createTransport({
   service: 'gmail',
