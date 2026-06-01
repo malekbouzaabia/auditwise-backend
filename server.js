@@ -107,7 +107,7 @@ app.put('/api/domains/:id/questions/:index', async (req, res) => {
 })
 
 // ── ChatController : RAG + helpers ───────────────────────────
-const { getClauseFromDocument, buildRAGContext } = require('./controllers/chatController')
+const { getClauseFromDocument, buildRAGContext } = require('./controllers/chatcontroller')
 
 // ── Route chat avec DeepSeek + RAG ───────────────────────────
 app.post('/api/chat', async (req, res) => {
