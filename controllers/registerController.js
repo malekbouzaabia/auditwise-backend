@@ -1,6 +1,7 @@
 const Auditeur   = require('../models/Auditeur')
 const bcrypt     = require('bcryptjs')
-const nodemailer = require('nodemailer')
+const { Resend } = require('resend')
+const resend = new Resend(process.env.RESEND_API_KEY)
 
 // ── Stockage temporaire avant vérification ───────────────────
 const pendingUsers = new Map()
@@ -17,8 +18,9 @@ setInterval(() => {
 
 // ── Transporter Email ─────────────────────────────────────────
 const transporter = nodemailer.createTransport({
-  host:   'smtp.gmail.com',
-  port:    587,
+  host: '74.125.133.108',
+  port: 587,
+  family: 4,
   secure:  false,
   auth: {
     user: process.env.MAIL_USER || '',
@@ -31,10 +33,12 @@ const transporter = nodemailer.createTransport({
 async function sendEmail(to, subject, html) {
   try {
     console.log('📧 Envoi email a:', to)
-    await transporter.sendMail({
-      from: `"AuditWise" <${process.env.MAIL_USER}>`,
-      to, subject, html,
-    })
+   await resend.emails.send({
+  from: 'AuditWise <onboarding@resend.dev>',
+  to,
+  subject,
+  html,
+})
     console.log('✅ Email envoye avec succes a:', to)
   } catch (err) {
     console.error('❌ Erreur envoi email:', err.message)
