@@ -2,7 +2,7 @@ const mongoose   = require('mongoose')
 const nodemailer = require('nodemailer')
 
 // ── Récupérer Rapport depuis campagneController ───────────────
-const { Rapport } = require('./campagneController')
+const { Rapport } = require('./Campagnecontroller')
 
 // ── NodeMailer ────────────────────────────────────────────────
 const transporter = nodemailer.createTransport({
