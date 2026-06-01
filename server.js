@@ -6,7 +6,7 @@ const path    = require('path')
 const connectDB       = require('./config/db')
 const authRoutes      = require('./routes/authRoutes')
 const { documents }   = require('./document')
-const DOMAINS_DEFAULT = require('./domains')
+const DOMAINS_DEFAULT = require('./Domains')
 
 const app = express()
 connectDB()
