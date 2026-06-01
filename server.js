@@ -157,15 +157,15 @@ app.post('/api/chat', async (req, res) => {
 })
 
 // ── Sprint 4 Controllers ─────────────────────────────────────
-const statsCtrl   = require('./controllers/statsController')
-const sessionCtrl = require('./controllers/sessionController')
+const statsCtrl   = require('./controllers/Statscontroller')
+const sessionCtrl = require('./controllers/Sessioncontroller')
 
 // ── Route Admin Sessions ──────────────────────────────────────
 app.get('/api/admin/sessions', sessionCtrl.getAdminSessions)
 
 // ── Sprint 3 Controllers ─────────────────────────────────────
-const campagneCtrl = require('./controllers/campagneController')
-const rapportCtrl  = require('./controllers/rapportController')
+const campagneCtrl = require('./controllers/Campagnecontroller')
+const rapportCtrl  = require('./controllers/Rapportcontroller')
 const { Campagne, Rapport } = campagneCtrl
 
 // ── Routes Campagnes ──────────────────────────────────────────
