@@ -1,6 +1,6 @@
 const mongoose   = require('mongoose')
 const nodemailer = require('nodemailer')
-const { getClauseFromDocument } = require('./chatController')
+const { getClauseFromDocument } = require('./Chatcontroller')
 
 // ── Schéma Campagne ───────────────────────────────────────────
 const campagneSchema = new mongoose.Schema({
