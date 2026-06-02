@@ -1,25 +1,23 @@
 const mongoose   = require('mongoose')
+const axios      = require('axios')
+const Rapport    = require('../models/Rapport')
+const { getClauseFromDocument } = require('./chatController')
 
-const axios = require('axios')
-// ── Récupérer Rapport depuis campagneController ───────────────
-const { Rapport } = require('./Campagnecontroller')
-
-// ── NodeMailer ────────────────────────────────────────────────
-
-async function sendEmail(auditeurEmail, userEmail, globalScore, htmlBody, pdfBase64) {
+// ── Fonction envoi email Mailjet ──────────────────────────────
+async function sendEmailMailjet(auditeurEmail, userEmail, globalScore, htmlBody, pdfBase64) {
   await axios.post(
     'https://api.mailjet.com/v3.1/send',
     {
       Messages: [{
-        From: {
-          Email: process.env.MAIL_USER,
-          Name: 'AuditWise'
-        },
-        To: [{
-          Email: auditeurEmail
-        }],
+        From: { Email: process.env.MAIL_USER, Name: 'AuditWise' },
+        To: [{ Email: auditeurEmail }],
         Subject: `Rapport Audit ISO 27001 — ${userEmail} — Score: ${globalScore}%`,
-        HTMLPart: htmlBody
+        HTMLPart: htmlBody,
+        Attachments: pdfBase64 ? [{
+          ContentType: 'application/pdf',
+          Filename: `Rapport_AuditWise_${new Date().toISOString().slice(0,10)}.pdf`,
+          Base64Content: pdfBase64
+        }] : []
       }]
     },
     {
@@ -30,6 +28,7 @@ async function sendEmail(auditeurEmail, userEmail, globalScore, htmlBody, pdfBas
     }
   )
 }
+
 // ── POST sauvegarder un rapport ───────────────────────────────
 exports.saveRapport = async (req, res) => {
   try {
@@ -70,14 +69,15 @@ exports.deleteRapport = async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }) }
 }
 
-
 // ── POST envoyer rapport par email ────────────────────────────
 exports.sendEmail = async (req, res) => {
   try {
-    const { userEmail, globalScore, domainScores, pdfBase64, domainsData } = req.body
+    const { userEmail, globalScore, domainScores, domainsData, pdfBase64 } = req.body
     const auditeurEmail = process.env.AUDITEUR_EMAIL || process.env.ADMIN_EMAIL
     if (!auditeurEmail) return res.status(400).json({ error: 'Email non configuré' })
+
     const statut = globalScore >= 70 ? 'Conforme' : globalScore >= 40 ? 'Partiellement conforme' : 'Non-conforme'
+
     const htmlBody = `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
         <div style="background:linear-gradient(135deg,#0b1f45,#1b6fd8);padding:30px;border-radius:12px 12px 0 0;text-align:center;">
@@ -86,23 +86,42 @@ exports.sendEmail = async (req, res) => {
         </div>
         <div style="background:white;padding:30px;border:1px solid #e0eaff;border-radius:0 0 12px 12px;">
           <table style="width:100%;border-collapse:collapse;margin:20px 0;">
-            <tr style="background:#f0f6ff;"><td style="padding:12px;font-weight:bold;">Utilisateur</td><td style="padding:12px;color:#1b6fd8;">${userEmail || 'Anonyme'}</td></tr>
-            <tr><td style="padding:12px;font-weight:bold;">Score global</td><td style="padding:12px;font-size:20px;font-weight:bold;color:${globalScore >= 70 ? '#22c55e' : globalScore >= 40 ? '#f59e0b' : '#ef4444'};">${globalScore}%</td></tr>
-            <tr style="background:#f0f6ff;"><td style="padding:12px;font-weight:bold;">Statut</td><td style="padding:12px;">${statut}</td></tr>
+            <tr style="background:#f0f6ff;">
+              <td style="padding:12px;font-weight:bold;">Utilisateur</td>
+              <td style="padding:12px;color:#1b6fd8;">${userEmail || 'Anonyme'}</td>
+            </tr>
+            <tr>
+              <td style="padding:12px;font-weight:bold;">Score global</td>
+              <td style="padding:12px;font-size:20px;font-weight:bold;color:${globalScore>=70?'#22c55e':globalScore>=40?'#f59e0b':'#ef4444'};">${globalScore}%</td>
+            </tr>
+            <tr style="background:#f0f6ff;">
+              <td style="padding:12px;font-weight:bold;">Statut</td>
+              <td style="padding:12px;">${statut}</td>
+            </tr>
+            <tr>
+              <td style="padding:12px;font-weight:bold;">Date</td>
+              <td style="padding:12px;">${new Date().toLocaleDateString('fr-FR')}</td>
+            </tr>
           </table>
-          <p style="color:#94a3b8;font-size:11px;text-align:center;">Généré par AuditWise AI — ISO 27001:2022</p>
+          <h3 style="color:#0b1f45;">Scores par domaine</h3>
+          <table style="width:100%;border-collapse:collapse;">
+            ${Array.isArray(domainsData) ? domainsData.map((d,i) => `
+              <tr style="background:${i%2===0?'#f8faff':'white'};">
+                <td style="padding:8px;font-size:12px;color:#0b1f45;">${d.label}</td>
+                <td style="padding:8px;text-align:right;font-weight:bold;color:${(d.score||0)>=70?'#22c55e':(d.score||0)>=40?'#f59e0b':'#ef4444'};">${d.score||0}%</td>
+              </tr>`).join('') : ''}
+          </table>
+          <p style="color:#94a3b8;font-size:11px;text-align:center;margin-top:20px;">Rapport PDF complet en pièce jointe — AuditWise AI</p>
         </div>
       </div>`
-       await sendEmail(
-      auditeurEmail,
-      userEmail,
-      globalScore,
-      htmlBody,
-      pdfBase64
-    )
-    
+
+    await sendEmailMailjet(auditeurEmail, userEmail, globalScore, htmlBody, pdfBase64)
+    console.log('✅ Email rapport envoyé à:', auditeurEmail)
     res.json({ success: true })
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) {
+    console.error('❌ Erreur sendEmail:', err.message)
+    res.status(500).json({ error: err.message })
+  }
 }
 
 // ── POST réclamations IA via RAG ──────────────────────────────
@@ -111,7 +130,6 @@ exports.reclamations = async (req, res) => {
     const { domains, answers } = req.body
     const apiKey = process.env.DEEPSEEK_API_KEY
     if (!apiKey) return res.status(500).json({ error: 'DEEPSEEK_API_KEY manquante' })
-    const { getClauseFromDocument } = require('./chatController')
     const reclamations = {}
     for (const [key, answer] of Object.entries(answers)) {
       const isFaux    = answer === false || answer === 'false' || answer === 0
