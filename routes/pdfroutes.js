@@ -6,35 +6,54 @@ const fs   = require('fs')
 const path = require('path')
 const os   = require('os')
 
-function generateRadarChart(domains, domainScores) {
+async function generateRadarChart(domains, domainScores) {
   try {
-    const data = domains.map((d, i) => ({
-      label: (d.label || ('D'+(i+1))).substring(0, 15),
-      score: domainScores[i] || 0
-    }))
-    const os = require('os')
-    const tmpJson = require('path').join(os.tmpdir(), 'radar_data_' + Date.now() + '.json')
-    const tmpPng  = require('path').join(os.tmpdir(), 'radar_img_'  + Date.now() + '.png')
-    const script  = require('path').join(__dirname, '../generate_radar.py')
-    
-    require('fs').writeFileSync(tmpJson, JSON.stringify(data))
-    const pyCmd = process.platform === 'win32' ? 'python' : 'python3'
-    require('child_process').execSync(`${pyCmd} "${script}" "${tmpJson}" "${tmpPng}"`, { timeout: 20000 })
-    
-    if (require('fs').existsSync(tmpPng)) {
-      const buf = require('fs').readFileSync(tmpPng)
-      try { require('fs').unlinkSync(tmpJson) } catch(e) {}
-      try { require('fs').unlinkSync(tmpPng) } catch(e) {}
-      return buf
+    const { ChartJSNodeCanvas } = require('chartjs-node-canvas')
+    const width = 500, height = 500
+    const chartJSNodeCanvas = new ChartJSNodeCanvas({ width, height, backgroundColour: 'white' })
+
+    const labels = domains.map((d, i) => (d.label || ('D'+(i+1))).substring(0, 12))
+    const scores = domains.map((d, i) => domainScores[i] || 0)
+
+    const config = {
+      type: 'radar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Conformité ISO 27001',
+          data: scores,
+          backgroundColor: 'rgba(27, 111, 216, 0.2)',
+          borderColor: 'rgba(27, 111, 216, 1)',
+          borderWidth: 2,
+          pointBackgroundColor: scores.map(s => s >= 70 ? '#22c55e' : s >= 40 ? '#f59e0b' : '#ef4444'),
+          pointRadius: 4,
+        }]
+      },
+      options: {
+        scales: {
+          r: {
+            min: 0,
+            max: 100,
+            ticks: { stepSize: 20, font: { size: 9 } },
+            pointLabels: { font: { size: 9 } }
+          }
+        },
+        plugins: {
+          legend: { display: true, position: 'top' }
+        }
+      }
     }
+
+    const buffer = await chartJSNodeCanvas.renderToBuffer(config)
+    return buffer
   } catch (e) {
     console.error('Radar error:', e.message)
+    return null
   }
-  return null
 }
 
 
-router.post('/rapport', (req, res) => {
+router.post('/rapport', async (req, res) => {
   try {
     const { domains: rawDomains, answers, domainScores, globalScore, userName, reclamations = {} } = req.body
     const domains = (rawDomains || []).map(d => ({ ...d, questions: Array.isArray(d.questions) ? d.questions : [] }))
