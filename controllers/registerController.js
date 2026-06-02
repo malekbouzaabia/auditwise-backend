@@ -1,7 +1,5 @@
 const Auditeur   = require('../models/Auditeur')
 const bcrypt     = require('bcryptjs')
-const { Resend } = require("resend");
-const nodemailer = require('nodemailer')
 const axios = require('axios')
 // ── Stockage temporaire avant vérification ───────────────────
 const pendingUsers = new Map()
@@ -17,34 +15,6 @@ setInterval(() => {
 }, 15 * 60 * 1000)
 
 // ── Transporter Email ───────────────────
-
-
-async function sendEmail(to, subject, html) {
-  try {
-    console.log('📧 Envoi email a:', to)
-    await axios.post(
-      'https://api.mailjet.com/v3.1/send',
-      {
-        Messages: [{
-          From: { Email: process.env.MAIL_USER, Name: 'AuditWise' },
-          To: [{ Email: to }],
-          Subject: subject,
-          HTMLPart: html,
-        }]
-      },
-      {
-        auth: {
-          username: process.env.MAILJET_API_KEY,
-          password: process.env.MAILJET_SECRET_KEY,
-        }
-      }
-    )
-    console.log('✅ Email envoyé à:', to)
-  } catch (err) {
-    console.error('❌ Erreur envoi email:', err.message)
-    throw err
-  }
-}
 
 async function sendEmail(to, subject, html) {
   try {
