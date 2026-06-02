@@ -1,42 +1,39 @@
-const mongoose   = require('mongoose')
-const nodemailer = require('nodemailer')
+const mongoose = require('mongoose')
+const axios    = require('axios')
 const { getClauseFromDocument } = require('./Chatcontroller')
+const Campagne = require('../models/Campagne')
+const Rapport  = require('../models/Rapport')
 
-// ── Schéma Campagne ───────────────────────────────────────────
-const campagneSchema = new mongoose.Schema({
-  nom:        { type: String, required: true },
-  statut:     { type: String, default: 'planifiee' },
-  dateDebut:  { type: Date,   required: true },
-  dateFin:    { type: Date,   required: true },
-  createdAt:  { type: Date,   default: Date.now },
-  closedAt:   { type: Date,   default: null },
-})
-const Campagne = mongoose.models.Campagne || mongoose.model('Campagne', campagneSchema)
-
-// ── Schéma Rapport ────────────────────────────────────────────
-const rapportSchema = new mongoose.Schema({
-  userId:      { type: String, default: null },
-  userEmail:   { type: String, default: null },
-  globalScore: { type: Number, default: 0 },
-  domainScores:{ type: mongoose.Schema.Types.Mixed, default: {} },
-  domainsData: { type: mongoose.Schema.Types.Mixed, default: [] },
-  answers:     { type: mongoose.Schema.Types.Mixed, default: {} },
-  campagneId:  { type: mongoose.Schema.Types.ObjectId, default: null },
-  campagneNom: { type: String, default: null },
-  statut:      { type: String, default: 'généré' },
-  createdAt:   { type: Date,   default: Date.now },
-})
-const Rapport = mongoose.models.Rapport || mongoose.model('Rapport', rapportSchema)
-
-// ── NodeMailer ────────────────────────────────────────────────
-const transporter = nodemailer.createTransport({
-  host:   '74.125.133.108',
-  port:    587,
-  secure:  false,
-  auth: { user: process.env.MAIL_USER || '', pass: process.env.MAIL_PASS || '' },
-  tls: { rejectUnauthorized: false, servername: 'smtp.gmail.com' },
-  family: 4
-})
+// ── Fonction email Mailjet ────────────────────────────────────
+async function sendEmailMailjet(to, subject, html, pdfB64, pdfName) {
+  try {
+    await axios.post(
+      'https://api.mailjet.com/v3.1/send',
+      {
+        Messages: [{
+          From: { Email: process.env.MAIL_USER, Name: 'AuditWise AI' },
+          To: [{ Email: to }],
+          Subject: subject,
+          HTMLPart: html,
+          Attachments: pdfB64 ? [{
+            ContentType: 'application/pdf',
+            Filename: pdfName || 'Rapport_AuditWise.pdf',
+            Base64Content: pdfB64
+          }] : []
+        }]
+      },
+      {
+        auth: {
+          username: process.env.MAILJET_API_KEY,
+          password: process.env.MAILJET_SECRET_KEY
+        }
+      }
+    )
+    console.log('✅ Email envoyé à:', to)
+  } catch(e) {
+    console.error('❌ Erreur email Mailjet:', e.message)
+  }
+}
 
 // ── Générer rapport collectif campagne ────────────────────────
 async function generateCampaignReport(campagneId, campagne) {
@@ -63,7 +60,7 @@ async function generateCampaignReport(campagneId, campagne) {
     for (const wd of weakDomains) {
       try {
         const clauseInfo = getClauseFromDocument(wd.clause)
-        const prompt = `Domaine ISO 27001 : "${wd.label}" (Clause ${wd.clause})\nScore moyen : ${wd.score}%\n${clauseInfo ? 'Exigence ISO : "' + clauseInfo.snippet.slice(0,200) + '"' : ''}\nEn 2 phrases : 1. CAUSES: ... 2. RECOMMANDATION: ...\nFormat:\nCAUSES: [texte]\nRECOMMANDATION: [texte]`
+        const prompt = `Domaine ISO 27001 : "${wd.label}" (Clause ${wd.clause})\nScore moyen : ${wd.score}%\n${clauseInfo ? 'Exigence ISO : "' + clauseInfo.snippet.slice(0,200) + '"'  : ''}\nEn 2 phrases : 1. CAUSES: ... 2. RECOMMANDATION: ...\nFormat:\nCAUSES: [texte]\nRECOMMANDATION: [texte]`
         const apiKey = process.env.DEEPSEEK_API_KEY
         const r = await fetch('https://api.deepseek.com/v1/chat/completions', {
           method: 'POST',
@@ -81,32 +78,67 @@ async function generateCampaignReport(campagneId, campagne) {
       }
     }
 
-    const pdfRes = await fetch('http://localhost:' + (process.env.PORT || 5000) + '/api/pdf/rapport-campagne', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ campagne, rapports, domainScores, globalScore, recommendations })
-    })
-    if (!pdfRes.ok) throw new Error('PDF generation failed')
-    const pdfBlob = await pdfRes.arrayBuffer()
-    const pdfB64  = Buffer.from(pdfBlob).toString('base64')
-
-    const auditeurEmail = process.env.AUDITEUR_EMAIL || process.env.ADMIN_EMAIL
-    if (auditeurEmail) {
-      await transporter.sendMail({
-        from: `"AuditWise AI" <${process.env.MAIL_USER}>`,
-        to: auditeurEmail,
-        subject: `Rapport Campagne "${campagne.nom}" — Score: ${globalScore}% — ${rapports.length} participant(s)`,
-        html: `<h2>Campagne : ${campagne.nom}</h2><p>Score global : ${globalScore}%</p><p>Participants : ${rapports.length}</p>`,
-        attachments: [{ filename: `Rapport_Campagne_${(campagne.nom||'').replace(/\s/g,'_')}_${new Date().toISOString().slice(0,10)}.pdf`, content: pdfB64, encoding: 'base64', contentType: 'application/pdf' }]
+    // ── Générer PDF via pdfroutes ──────────────────────────────
+    let pdfB64 = null
+    try {
+      const backendUrl = process.env.BACKEND_URL || 'https://auditwise-backend1.onrender.com'
+      const pdfRes = await fetch(backendUrl + '/api/pdf/rapport-campagne', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campagne, rapports, domainScores, globalScore, recommendations })
       })
-      console.log('✅ Rapport campagne envoyé à:', auditeurEmail)
+      if (pdfRes.ok) {
+        const pdfBlob = await pdfRes.arrayBuffer()
+        pdfB64 = Buffer.from(pdfBlob).toString('base64')
+      }
+    } catch(e) {
+      console.error('⚠️ PDF campagne non généré:', e.message)
     }
 
+    // ── Envoyer email avec Mailjet ─────────────────────────────
+    const auditeurEmail = process.env.AUDITEUR_EMAIL || process.env.ADMIN_EMAIL
+    if (auditeurEmail) {
+      const htmlBody = `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+          <div style="background:linear-gradient(135deg,#0b1f45,#8b5cf6);padding:30px;border-radius:12px 12px 0 0;text-align:center;">
+            <h1 style="color:white;margin:0;">AuditWise — Rapport de Campagne</h1>
+          </div>
+          <div style="background:white;padding:30px;border:1px solid #e0eaff;border-radius:0 0 12px 12px;">
+            <h2 style="color:#0b1f45;">Campagne : ${campagne.nom}</h2>
+            <table style="width:100%;border-collapse:collapse;margin:20px 0;">
+              <tr style="background:#f0f6ff;"><td style="padding:12px;font-weight:bold;">Participants</td><td style="padding:12px;">${rapports.length} auditeur(s)</td></tr>
+              <tr><td style="padding:12px;font-weight:bold;">Score moyen global</td><td style="padding:12px;font-size:20px;font-weight:bold;color:${globalScore>=70?'#22c55e':globalScore>=40?'#f59e0b':'#ef4444'};">${globalScore}%</td></tr>
+              <tr style="background:#f0f6ff;"><td style="padding:12px;font-weight:bold;">Date clôture</td><td style="padding:12px;">${new Date().toLocaleDateString('fr-FR')}</td></tr>
+            </table>
+            <h3 style="color:#8b5cf6;">Domaines critiques</h3>
+            ${recommendations.filter(r=>r.score<70).map(r=>`
+              <div style="margin-bottom:12px;padding:12px;background:#fff5f5;border-left:4px solid ${r.score>=40?'#f59e0b':'#ef4444'};border-radius:4px;">
+                <strong>${r.label}</strong> — Score : <strong>${r.score}%</strong>
+                ${r.recommandation?`<p style="margin:6px 0 0;font-size:13px;color:#374151;">${r.recommandation}</p>`:''}
+              </div>`).join('')}
+            <p style="color:#94a3b8;font-size:11px;text-align:center;margin-top:20px;">Rapport PDF complet en pièce jointe — AuditWise AI</p>
+          </div>
+        </div>`
+
+      await sendEmailMailjet(
+        auditeurEmail,
+        `Rapport Campagne "${campagne.nom}" — Score: ${globalScore}% — ${rapports.length} participant(s)`,
+        htmlBody,
+        pdfB64,
+        `Rapport_Campagne_${(campagne.nom||'campagne').replace(/\s/g,'_')}_${new Date().toISOString().slice(0,10)}.pdf`
+      )
+    }
+
+    // ── Sauvegarder rapport collectif ─────────────────────────
     await Rapport.create({
-      userId: null, userEmail: 'RAPPORT_COLLECTIF_' + (campagne.nom || campagneId),
-      globalScore, domainScores: Object.fromEntries(domainScores.map((d, i) => [i, d.score])),
+      userId: null,
+      userEmail: 'RAPPORT_COLLECTIF_' + (campagne.nom || campagneId),
+      globalScore,
+      domainScores: Object.fromEntries(domainScores.map((d, i) => [i, d.score])),
       domainsData: domainScores.map(d => ({ label: d.label, clause: d.clause, score: d.score })),
-      answers: {}, campagneId, campagneNom: campagne.nom || null,
+      answers: {},
+      campagneId,
+      campagneNom: campagne.nom || null,
       statut: globalScore >= 70 ? 'conforme' : globalScore >= 40 ? 'partiel' : 'non-conforme',
       createdAt: new Date()
     })
@@ -134,9 +166,7 @@ exports.getAllCampagnes = async (req, res) => {
     await Campagne.updateMany({ statut: 'planifiee', dateDebut: { $lte: now } }, { statut: 'ouverte' })
     const expiredCamps = await Campagne.find({ statut: 'ouverte', dateFin: { $lt: now } }).lean()
     await Campagne.updateMany({ statut: 'ouverte', dateFin: { $lt: now } }, { statut: 'fermee', closedAt: now })
-    for (const ec of expiredCamps) {
-      setImmediate(() => generateCampaignReport(ec._id.toString(), ec))
-    }
+    for (const ec of expiredCamps) { setImmediate(() => generateCampaignReport(ec._id.toString(), ec)) }
     const campagnes = await Campagne.find().sort({ createdAt: -1 }).lean()
     const result = await Promise.all(campagnes.map(async c => {
       const rapports = await Rapport.find({ campagneId: c._id }).lean()
