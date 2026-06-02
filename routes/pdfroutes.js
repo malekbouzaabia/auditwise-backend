@@ -6,50 +6,34 @@ const fs   = require('fs')
 const path = require('path')
 const os   = require('os')
 
-async function generateRadarChart(domains, domainScores) {
+function generateRadarChart(domains, domainScores) {
   try {
-    const { ChartJSNodeCanvas } = require('chartjs-node-canvas')
-    const width = 500, height = 500
-    const chartJSNodeCanvas = new ChartJSNodeCanvas({ width, height, backgroundColour: 'white' })
+    const data = domains.map((d, i) => ({
+      label: (d.label || ('D'+(i+1))).substring(0, 15),
+      score: domainScores[i] || 0
+    }))
+    const os     = require('os')
+    const path   = require('path')
+    const fs     = require('fs')
+    const { execSync } = require('child_process')
+    const tmpJson = path.join(os.tmpdir(), 'radar_data_' + Date.now() + '.json')
+    const tmpPng  = path.join(os.tmpdir(), 'radar_img_'  + Date.now() + '.png')
+    const script  = path.join(__dirname, '../generate_radar.py')
 
-    const labels = domains.map((d, i) => (d.label || ('D'+(i+1))).substring(0, 12))
-    const scores = domains.map((d, i) => domainScores[i] || 0)
+    fs.writeFileSync(tmpJson, JSON.stringify(data))
+    const pyCmd = process.platform === 'win32' ? 'python' : 'python3'
+    execSync(`${pyCmd} "${script}" "${tmpJson}" "${tmpPng}"`, { timeout: 20000 })
 
-    const config = {
-      type: 'radar',
-      data: {
-        labels,
-        datasets: [{
-          label: 'Conformité ISO 27001',
-          data: scores,
-          backgroundColor: 'rgba(27, 111, 216, 0.2)',
-          borderColor: 'rgba(27, 111, 216, 1)',
-          borderWidth: 2,
-          pointBackgroundColor: scores.map(s => s >= 70 ? '#22c55e' : s >= 40 ? '#f59e0b' : '#ef4444'),
-          pointRadius: 4,
-        }]
-      },
-      options: {
-        scales: {
-          r: {
-            min: 0,
-            max: 100,
-            ticks: { stepSize: 20, font: { size: 9 } },
-            pointLabels: { font: { size: 9 } }
-          }
-        },
-        plugins: {
-          legend: { display: true, position: 'top' }
-        }
-      }
+    if (fs.existsSync(tmpPng)) {
+      const buf = fs.readFileSync(tmpPng)
+      try { fs.unlinkSync(tmpJson) } catch(e) {}
+      try { fs.unlinkSync(tmpPng) } catch(e) {}
+      return buf
     }
-
-    const buffer = await chartJSNodeCanvas.renderToBuffer(config)
-    return buffer
   } catch (e) {
     console.error('Radar error:', e.message)
-    return null
   }
+  return null
 }
 
 
@@ -260,8 +244,6 @@ router.post('/rapport', async (req, res) => {
   }
 })
 
-module.exports = router
-
 // ══════════════════════════════════════════════════════════════
 // RAPPORT COLLECTIF CAMPAGNE avec Analyse IA
 // ══════════════════════════════════════════════════════════════
@@ -273,6 +255,7 @@ router.post('/rapport-campagne', async (req, res) => {
     const doc = new PDFDocument({ margin: 0, size: 'A4', autoFirstPage: true, bufferPages: true })
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', 'attachment; filename=Rapport_Campagne_' + campagne.nom?.replace(/\s/g,'_') + '.pdf')
+    doc.on('error', (err) => { console.error('PDF stream error:', err.message) })
     doc.pipe(res)
 
     const BLUE='#1b6fd8', BLUE2='#0d2a60', DARK='#0b1f45'
