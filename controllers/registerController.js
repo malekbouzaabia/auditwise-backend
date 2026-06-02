@@ -15,18 +15,44 @@ setInterval(() => {
 }, 15 * 60 * 1000)
 
 // ── Transporter Email ───────────────────
-
 async function sendEmail(to, subject, html) {
   try {
-    console.log('📧 Envoi email a:', to)
-    await transporter.sendMail({
-      from: `"AuditWise" <${process.env.MAIL_USER}>`,
-      to, subject, html,
-    })
-    console.log('✅ Email envoyé à:', to)
+    console.log('📧 Envoi email à:', to);
+
+    await axios.post(
+      'https://api.mailjet.com/v3.1/send',
+      {
+        Messages: [
+          {
+            From: {
+              Email: process.env.MAIL_USER,
+              Name: 'AuditWise'
+            },
+            To: [
+              {
+                Email: to
+              }
+            ],
+            Subject: subject,
+            HTMLPart: html
+          }
+        ]
+      },
+      {
+        auth: {
+          username: process.env.MAILJET_API_KEY,
+          password: process.env.MAILJET_SECRET_KEY
+        }
+      }
+    );
+
+    console.log('✅ Email envoyé à:', to);
   } catch (err) {
-    console.error('❌ Erreur envoi email:', err.message)
-    throw err
+    console.error(
+      '❌ Erreur Mailjet:',
+      err.response?.data || err.message
+    );
+    throw err;
   }
 }
 
