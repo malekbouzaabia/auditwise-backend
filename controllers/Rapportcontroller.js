@@ -1,7 +1,7 @@
 const mongoose   = require('mongoose')
 const axios      = require('axios')
 const Rapport    = require('../models/Rapport')
-const { getClauseFromDocument } = require('./chatController')
+const { getClauseFromDocument } = require('./Chatcontroller')
 
 // ── Fonction envoi email Mailjet ──────────────────────────────
 async function sendEmailMailjet(auditeurEmail, userEmail, globalScore, htmlBody, pdfBase64) {
