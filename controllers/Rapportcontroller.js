@@ -1,17 +1,33 @@
 const mongoose   = require('mongoose')
-const nodemailer = require('nodemailer')
 
+const axios = require('axios')
 // ── Récupérer Rapport depuis campagneController ───────────────
 const { Rapport } = require('./Campagnecontroller')
 
 // ── NodeMailer ────────────────────────────────────────────────
-const transporter = nodemailer.createTransport({
-  host: '74.125.133.108', port: 587, secure: false,
-  auth: { user: process.env.MAIL_USER || '', pass: process.env.MAIL_PASS || '' },
-  tls: { rejectUnauthorized: false, servername: 'smtp.gmail.com' },
-  family: 4
-})
 
+await axios.post(
+  'https://api.mailjet.com/v3.1/send',
+  {
+    Messages: [{
+      From: { Email: process.env.MAIL_USER, Name: 'AuditWise' },
+      To: [{ Email: auditeurEmail }],
+      Subject: `Rapport Audit ISO 27001 — ${userEmail} — Score: ${globalScore}%`,
+      HTMLPart: htmlBody,
+      Attachments: pdfBase64 ? [{
+        ContentType: 'application/pdf',
+        Filename: `Rapport_AuditWise_${new Date().toISOString().slice(0,10)}.pdf`,
+        Base64Content: pdfBase64,
+      }] : []
+    }]
+  },
+  {
+    auth: {
+      username: process.env.MAILJET_API_KEY,
+      password: process.env.MAILJET_SECRET_KEY,
+    }
+  }
+)
 // ── POST sauvegarder un rapport ───────────────────────────────
 exports.saveRapport = async (req, res) => {
   try {
@@ -74,13 +90,7 @@ exports.sendEmail = async (req, res) => {
           <p style="color:#94a3b8;font-size:11px;text-align:center;">Généré par AuditWise AI — ISO 27001:2022</p>
         </div>
       </div>`
-    await transporter.sendMail({
-      from: `"AuditWise AI" <${process.env.MAIL_USER}>`,
-      to: auditeurEmail,
-      subject: `Rapport Audit ISO 27001 — ${userEmail || 'Anonyme'} — Score: ${globalScore}%`,
-      html: htmlBody,
-      attachments: pdfBase64 ? [{ filename: `Rapport_AuditWise_${new Date().toISOString().slice(0,10)}.pdf`, content: pdfBase64, encoding: 'base64', contentType: 'application/pdf' }] : [],
-    })
+    
     res.json({ success: true })
   } catch (err) { res.status(500).json({ error: err.message }) }
 }
