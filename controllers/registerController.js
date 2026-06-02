@@ -1,7 +1,7 @@
 const Auditeur   = require('../models/Auditeur')
 const bcrypt     = require('bcryptjs')
 const { Resend } = require("resend");
-const resend = new Resend(process.env.RESEND_API_KEY);
+const nodemailer = require('nodemailer')
 // ── Stockage temporaire avant vérification ───────────────────
 const pendingUsers = new Map()
 
@@ -17,29 +17,27 @@ setInterval(() => {
 
 // ── Transporter Email ───────────────────
 
+const transporter = nodemailer.createTransport({
+  host: 'in-v3.mailjet.com',
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.MAILJET_API_KEY,
+    pass: process.env.MAILJET_SECRET_KEY,
+  }
+})
 
 async function sendEmail(to, subject, html) {
   try {
-    console.log('📧 Envoi email à:', to);
-
-    const result = await resend.emails.send({
-      from: "AuditWise <onboarding@resend.dev>",
-      to,
-      subject,
-      html,
-    });
-
-    if (result.error) {
-      console.error("❌ Resend error:", result.error);
-      throw new Error(result.error.message);
-    }
-
-    console.log('✅ Email envoyé ID:', result.id);
-    return result;
-
+    console.log('📧 Envoi email a:', to)
+    await transporter.sendMail({
+      from: `"AuditWise" <${process.env.MAIL_USER}>`,
+      to, subject, html,
+    })
+    console.log('✅ Email envoyé à:', to)
   } catch (err) {
-    console.error('❌ Erreur envoi email:', err.message);
-    throw err;
+    console.error('❌ Erreur envoi email:', err.message)
+    throw err
   }
 }
 
